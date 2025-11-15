@@ -204,30 +204,30 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
         # do NOT set st.session_state["dept_type"] manually here
 
    # master ticket UI removed for now
-# compute department_type for preview without writing to widget keys
-if st.session_state.get("request_type") == "Project":
-    computed_dept_type = "Multiple"
-else:
-    computed_dept_type = st.session_state.get("dept_type")
-
-    preview = {
-        "requester_email": st.session_state.get("requester_email"),
-        "name": name_val,
-        "department": dept_val,
-        "department_lead_email": lead_val,
-        "request_type": st.session_state.get("request_type"),
-        "department_type": computed_dept_type,
-    }
-    st.markdown("#### Preview payload")
-    st.code(json.dumps(preview, indent=2))
-
-    if st.button("Create master ticket and children (preview only)"):
-        st.success("Payload ready — see preview above. (Integrate with JIRA API next.)")
-
-    else:
-      st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
-    if not APPSCRIPT_URL:
-        st.warning("Apps Script URL not configured. Please set it in st.secrets or environment variables.")
-    # The widget already sets st.session_state["dept_type"] for us.
+  # compute department_type for preview without writing to widget keys
+  if st.session_state.get("request_type") == "Project":
+      computed_dept_type = "Multiple"
+  else:
+      computed_dept_type = st.session_state.get("dept_type")
+  
+      preview = {
+          "requester_email": st.session_state.get("requester_email"),
+          "name": name_val,
+          "department": dept_val,
+          "department_lead_email": lead_val,
+          "request_type": st.session_state.get("request_type"),
+          "department_type": computed_dept_type,
+      }
+      st.markdown("#### Preview payload")
+      st.code(json.dumps(preview, indent=2))
+  
+      if st.button("Create master ticket and children (preview only)"):
+          st.success("Payload ready — see preview above. (Integrate with JIRA API next.)")
+  
+      else:
+        st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
+      if not APPSCRIPT_URL:
+          st.warning("Apps Script URL not configured. Please set it in st.secrets or environment variables.")
+      # The widget already sets st.session_state["dept_type"] for us.
 
     
