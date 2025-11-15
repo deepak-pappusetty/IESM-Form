@@ -1,14 +1,11 @@
-# iesm_live_lookup.py
+# IESM-Form.py
 """
-Streamlit app that verifies user email against a live Google Sheet served
-by an Apps Script Web App and auto-fills Name / Department / Dept Lead.
+Streamlit app for IESM email lookup + request start (no master ticket fields).
 
-Set the Apps Script web app URL and the token in Streamlit secrets for production:
-  [deployment]
-  APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbziYwpJylR0RqE6rpc1Yehoi3jXNwY4VkkguFznbSF3Of5UkELcN2QL6Yko931mIwz8/exec"
-  APPSCRIPT_TOKEN = "DeepakPappusetty"
-
-Or for quick local test, edit APPSCRIPT_URL_FALLBACK and APPSCRIPT_TOKEN_FALLBACK below.
+Secrets (Streamlit Cloud or local secrets.toml):
+[deployment]
+APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzi.../exec"
+APPSCRIPT_TOKEN = "your_token_here"
 """
 import streamlit as st
 import requests
@@ -203,31 +200,27 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
         )
         # do NOT set st.session_state["dept_type"] manually here
 
-   # master ticket UI removed for now
-  # compute department_type for preview without writing to widget keys
-  if st.session_state.get("request_type") == "Project":
-      computed_dept_type = "Multiple"
-  else:
-      computed_dept_type = st.session_state.get("dept_type")
-  
-      preview = {
-          "requester_email": st.session_state.get("requester_email"),
-          "name": name_val,
-          "department": dept_val,
-          "department_lead_email": lead_val,
-          "request_type": st.session_state.get("request_type"),
-          "department_type": computed_dept_type,
-      }
-      st.markdown("#### Preview payload")
-      st.code(json.dumps(preview, indent=2))
-  
-      if st.button("Create master ticket and children (preview only)"):
-          st.success("Payload ready — see preview above. (Integrate with JIRA API next.)")
-  
-      else:
-        st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
-      if not APPSCRIPT_URL:
-          st.warning("Apps Script URL not configured. Please set it in st.secrets or environment variables.")
-      # The widget already sets st.session_state["dept_type"] for us.
+    # compute department_type for preview without writing to widget keys
+    if st.session_state.get("request_type") == "Project":
+        computed_dept_type = "Multiple"
+    else:
+        computed_dept_type = st.session_state.get("dept_type")
 
-    
+    preview = {
+        "requester_email": st.session_state.get("requester_email"),
+        "name": name_val,
+        "department": dept_val,
+        "department_lead_email": lead_val,
+        "request_type": st.session_state.get("request_type"),
+        "department_type": computed_dept_type,
+    }
+    st.markdown("#### Preview payload")
+    st.code(json.dumps(preview, indent=2))
+
+    if st.button("Create master ticket and children (preview only)"):
+        st.success("Payload ready — see preview above. (Integrate with JIRA API next.)")
+
+else:
+    st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
+    if not APPSCRIPT_URL:
+        st.warning("Apps Script URL not configured. Please set it in st.secrets or environment variables.")
