@@ -1,11 +1,15 @@
 # IESM-Form.py
 """
-Streamlit app for IESM email lookup + request start (no master ticket fields).
+IESM Streamlit app with dynamic request rows from Config sheet.
 
 Secrets (Streamlit Cloud or local secrets.toml):
 [deployment]
 APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzi.../exec"
 APPSCRIPT_TOKEN = "your_token_here"
+
+Notes:
+- This app requests the Config sheet by calling the Apps Script endpoint with `sheet=Config`.
+- If your Apps Script web app does not support a `sheet` param, update it to return the requested sheet as JSON.
 """
 import streamlit as st
 import requests
@@ -44,18 +48,25 @@ def get_apps_script_config():
 
 APPSCRIPT_URL, APPSCRIPT_TOKEN = get_apps_script_config()
 
+# caching decorator compatibility
 if hasattr(st, "cache_data"):
     cache_decorator = st.cache_data
 else:
     cache_decorator = st.cache
 
 @cache_decorator(ttl=60)
-def fetch_sheet_data(url: str, token: Optional[str], timeout: int = 8) -> dict:
+def fetch_sheet_data(url: str, token: Optional[str], sheet: Optional[str] = None, timeout: int = 8) -> dict:
+    """
+    Call the Apps Script web app. Returns dict: {"ok": bool, "data": list|None, "error": str|None}
+    If `sheet` is provided, we send it as a query param: ?sheet=Config
+    """
     if not url:
         return {"ok": False, "error": "Apps Script URL not configured.", "data": None}
     params = {}
     if token:
         params["token"] = token
+    if sheet:
+        params["sheet"] = sheet
     try:
         resp = requests.get(url, params=params, timeout=timeout)
         resp.raise_for_status()
@@ -98,18 +109,76 @@ def pick_key(keys, candidates):
                 return k
     return None
 
-# ---------- session_state defaults ----------
+# Parse the config sheet into dict of header -> list of non-empty values
+def parse_config_columns(rows):
+    """
+    rows: list of row dicts or list-of-lists depending on Apps Script output.
+    We expect either:
+      - list of dicts where keys are headers, or
+      - list of lists (first row headers, subsequent rows values)
+    Return: dict(header -> [value1, value2...])
+    """
+    cols = {}
+    if not rows:
+        return cols
+
+    # If rows are dicts
+    if isinstance(rows[0], dict):
+        headers = list(rows[0].keys())
+        # initialize lists from column values
+        for h in headers:
+            vals = []
+            for r in rows:
+                v = r.get(h, "")
+                if v is None:
+                    v = ""
+                v = str(v).strip()
+                if v:
+                    vals.append(v)
+            # drop the header itself if it appeared in rows; we want items below header
+            # If first entry equals header text, remove it
+            if vals and vals[0].strip().lower() == str(h).strip().lower():
+                vals = vals[1:]
+            cols[h] = vals
+        return cols
+
+    # If rows are lists (first row is headers)
+    if isinstance(rows[0], list):
+        headers = rows[0]
+        for ci, h in enumerate(headers):
+            vals = []
+            for r in rows[1:]:
+                if ci < len(r):
+                    v = r[ci]
+                    if v is None:
+                        v = ""
+                    v = str(v).strip()
+                    if v:
+                        vals.append(v)
+            cols[h] = vals
+        return cols
+
+    return cols
+
+# ---------- session state defaults ----------
 if "email_verified" not in st.session_state:
     st.session_state["email_verified"] = False
 if "user_row" not in st.session_state:
     st.session_state["user_row"] = None
 if "requester_email" not in st.session_state:
     st.session_state["requester_email"] = None
-# widgets will own these keys; initialize if absent
+
+# widgets will own these keys
 if "request_type" not in st.session_state:
     st.session_state["request_type"] = None
 if "dept_type" not in st.session_state:
     st.session_state["dept_type"] = None
+
+# small cache for config (so we don't re-request each change)
+if "config_columns" not in st.session_state:
+    st.session_state["config_columns"] = None
+if "config_error" not in st.session_state:
+    st.session_state["config_error"] = None
 
 # ---------- UI ----------
 st.set_page_config(page_title="IESM - Isha Engineering Service Management", layout="centered")
@@ -126,7 +195,7 @@ if verify_btn:
         st.warning("Please enter an email to verify.")
     else:
         with st.spinner("Checking IESM Users sheet..."):
-            result = fetch_sheet_data(APPSCRIPT_URL, APPSCRIPT_TOKEN)
+            result = fetch_sheet_data(APPSCRIPT_URL, APPSCRIPT_TOKEN, sheet="User")
         if not result["ok"]:
             st.error(result["error"])
         else:
@@ -142,6 +211,21 @@ if verify_btn:
                 st.session_state["user_row"] = matched
                 st.session_state["requester_email"] = email_norm
                 st.success("Email verified — details loaded.")
+
+# ---------- Load Config once (lazy) ----------
+def load_config_once():
+    if st.session_state.get("config_columns") is None and st.session_state.get("config_error") is None:
+        # try to fetch Config sheet from the same webapp; requires Apps Script support for `sheet=Config`
+        cfg_res = fetch_sheet_data(APPSCRIPT_URL, APPSCRIPT_TOKEN, sheet="Config")
+        if not cfg_res["ok"]:
+            st.session_state["config_error"] = cfg_res["error"]
+            st.session_state["config_columns"] = {}
+            return
+        cols = parse_config_columns(cfg_res["data"])
+        st.session_state["config_columns"] = cols
+
+# run config load lazily when UI is rendered
+load_config_once()
 
 # ---------- After verification ----------
 if st.session_state["email_verified"] and st.session_state["user_row"]:
@@ -179,16 +263,14 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
         key="request_type",
     )
 
-    # read current selected request type from session_state (widget wrote it)
     current_req = st.session_state.get("request_type")
 
-    # Departments involved UI — do NOT assign into the same widget keys
+    # Departments involved UI
     if current_req == "Project":
         st.markdown("**Departments involved:** Multiple (auto-selected for Project)")
         st.text_input("Departments involved", value="Multiple", key="ui_deptinfo", disabled=True)
 
     elif current_req in ("Maintenance", "New"):
-        # widget will set st.session_state["dept_type"]
         dept_choice = st.selectbox(
             "Departments involved",
             options=["-- Select --", "Single", "Multiple"],
@@ -198,27 +280,100 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
             ),
             key="dept_type"
         )
-        # do NOT set st.session_state["dept_type"] manually here
+        # widget manages st.session_state["dept_type"]
 
-    # compute department_type for preview without writing to widget keys
-    if st.session_state.get("request_type") == "Project":
-        computed_dept_type = "Multiple"
+    # ---------- NEW: When Single & Maintenance/New show dynamic rows ----------
+    # Ensure config loaded
+    config_cols = st.session_state.get("config_columns") or {}
+    config_err = st.session_state.get("config_error")
+
+    if current_req in ("Maintenance", "New") and st.session_state.get("dept_type") == "Single":
+        # show config load errors if any
+        if config_err:
+            st.error(f"Could not load Config sheet: {config_err}")
+        else:
+            # Get service dept options from column "Maintenance Service Type" (fallback to keys)
+            service_dept_options = config_cols.get("Maintenance Service Type")
+            if not service_dept_options:
+                # fallback: try to find a likely column header
+                for k in config_cols.keys():
+                    if "maintenance" in str(k).lower() and "service" in str(k).lower():
+                        service_dept_options = config_cols.get(k)
+                        break
+            if not service_dept_options:
+                # ultimate fallback: use config column headers as options
+                service_dept_options = list(config_cols.keys())
+
+            # number of requests
+            num = st.number_input("Number of requests (max 10)", min_value=1, max_value=10, value=1, step=1, key="num_requests")
+
+            st.markdown("### Request details")
+            # prepare containers for inputs
+            rows_data = []
+            for i in range(int(num)):
+                st.markdown(f"**Request {i+1}**")
+                c1, c2, c3, c4, c5 = st.columns([2, 2, 3, 2, 2])  # c5 used only for New's extra field
+                with c1:
+                    svc = st.selectbox(f"Service Dept (row {i+1})", options=["-- Select --"] + service_dept_options, key=f"svc_{i}")
+                # determine subcategory options by looking for header matching svc
+                sub_opts = []
+                if svc and svc != "-- Select --":
+                    # find header exactly matching svc
+                    for h, vals in config_cols.items():
+                        if str(h).strip().lower() == svc.strip().lower():
+                            sub_opts = vals
+                            break
+                with c2:
+                    sub = st.selectbox(f"Sub Category (row {i+1})", options=["-- Select --"] + (sub_opts or []), key=f"sub_{i}")
+                with c3:
+                    desc = st.text_input(f"Description (row {i+1})", key=f"desc_{i}")
+                if current_req == "Maintenance":
+                    with c4:
+                        occ_opts = config_cols.get("Issue Occurrence", [])
+                        occ = st.selectbox(f"Issue Occurrence (row {i+1})", options=["-- Select --"] + (occ_opts or []), key=f"occ_{i}")
+                    rows_data.append({
+                        "service_dept": svc,
+                        "sub_category": sub,
+                        "description": desc,
+                        "occurrence": occ
+                    })
+                else:  # New
+                    with c4:
+                        reason = st.text_input(f"Reason (row {i+1})", key=f"reason_{i}")
+                    with c5:
+                        chall = st.text_input(f"Existing Challenges (row {i+1})", key=f"chall_{i}")
+                    rows_data.append({
+                        "service_dept": svc,
+                        "sub_category": sub,
+                        "description": desc,
+                        "reason": reason,
+                        "existing_challenges": chall
+                    })
+                st.write("---")
+
+            # Show a compact preview table
+            st.markdown("#### Requests preview")
+            st.json(rows_data)
+
+            # Add a single action button to proceed to create tickets (placeholder)
+            if st.button("Proceed with these requests (preview only)"):
+                st.success("Requests captured (preview). Next: wire to JIRA / backend to create tickets.")
     else:
-        computed_dept_type = st.session_state.get("dept_type")
+        # show preview for non-single/multi or no selection
+        computed_dept_type = "Multiple" if current_req == "Project" else st.session_state.get("dept_type")
+        preview = {
+            "requester_email": st.session_state.get("requester_email"),
+            "name": name_val,
+            "department": dept_val,
+            "department_lead_email": lead_val,
+            "request_type": st.session_state.get("request_type"),
+            "department_type": computed_dept_type,
+        }
+        st.markdown("#### Preview payload")
+        st.code(json.dumps(preview, indent=2))
 
-    preview = {
-        "requester_email": st.session_state.get("requester_email"),
-        "name": name_val,
-        "department": dept_val,
-        "department_lead_email": lead_val,
-        "request_type": st.session_state.get("request_type"),
-        "department_type": computed_dept_type,
-    }
-    st.markdown("#### Preview payload")
-    st.code(json.dumps(preview, indent=2))
-
-    if st.button("Create master ticket and children (preview only)"):
-        st.success("Payload ready — see preview above. (Integrate with JIRA API next.)")
+        if st.button("Create master ticket and children (preview only)"):
+            st.success("Payload ready — see preview above. (Integrate with JIRA API next.)")
 
 else:
     st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
