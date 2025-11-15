@@ -17,7 +17,7 @@ from typing import Optional
 
 # ---- CONFIG - replace with your webapp URL if you want to hardcode for quick test ----
 APPSCRIPT_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbziYwpJylR0RqE6rpc1Yehoi3jXNwY4VkkguFznbSF3Of5UkELcN2QL6Yko931mIwz8/exec"
-APPSCRIPT_TOKEN_FALLBACK = "DeepakPappusetty"   # <-- MATCH THIS EXACTLY
+APPSCRIPT_TOKEN_FALLBACK = None   # do NOT store secret here
 
 
 # ---- Use secrets when available (recommended) ----
