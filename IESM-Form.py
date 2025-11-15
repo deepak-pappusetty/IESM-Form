@@ -203,26 +203,21 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
         )
         # do NOT set st.session_state["dept_type"] manually here
 
-    st.write("---")
-    st.text_input("Master ticket title", key="master_title")
-    st.text_area("Master ticket description", key="master_description", height=120)
+   # master ticket UI removed for now
+# compute department_type for preview without writing to widget keys
+if st.session_state.get("request_type") == "Project":
+    computed_dept_type = "Multiple"
+else:
+    computed_dept_type = st.session_state.get("dept_type")
 
-    # compute department_type for preview without writing to widget keys
-    if st.session_state.get("request_type") == "Project":
-        computed_dept_type = "Multiple"
-    else:
-        computed_dept_type = st.session_state.get("dept_type")
-
-    preview = {
-        "requester_email": st.session_state.get("requester_email"),
-        "name": name_val,
-        "department": dept_val,
-        "department_lead_email": lead_val,
-        "request_type": st.session_state.get("request_type"),
-        "department_type": computed_dept_type,
-        "master_title": st.session_state.get("master_title"),
-        "master_description": st.session_state.get("master_description"),
-    }
+preview = {
+    "requester_email": st.session_state.get("requester_email"),
+    "name": name_val,
+    "department": dept_val,
+    "department_lead_email": lead_val,
+    "request_type": st.session_state.get("request_type"),
+    "department_type": computed_dept_type,
+}
     st.markdown("#### Preview payload")
     st.code(json.dumps(preview, indent=2))
 
