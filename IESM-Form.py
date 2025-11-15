@@ -224,7 +224,7 @@ else:
     if st.button("Create master ticket and children (preview only)"):
         st.success("Payload ready — see preview above. (Integrate with JIRA API next.)")
 
-else:
+    else:
     st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
     if not APPSCRIPT_URL:
         st.warning("Apps Script URL not configured. Please set it in st.secrets or environment variables.")
