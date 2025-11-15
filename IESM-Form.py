@@ -15,22 +15,13 @@ import requests
 import json
 from typing import Optional
 
-# ---- CONFIG - replace with your webapp URL if you want to hardcode for quick test ----
+# ---------- FALLBACK (safe) ----------
 APPSCRIPT_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbziYwpJylR0RqE6rpc1Yehoi3jXNwY4VkkguFznbSF3Of5UkELcN2QL6Yko931mIwz8/exec"
-APPSCRIPT_TOKEN_FALLBACK = None   # do NOT store secret here
+APPSCRIPT_TOKEN_FALLBACK = None  # never store token here
 
-
-# ---------- Helpers to load config ----------
+# ---------- Helpers ----------
 def get_apps_script_config():
-    """
-    Return (url, token) by checking:
-     1) st.secrets['deployment'] (preferred)
-     2) top-level st.secrets keys
-     3) environment variables APPSCRIPT_URL / APPSCRIPT_TOKEN
-     4) fallback constants
-    """
     import os
-
     # 1) nested [deployment]
     try:
         d = st.secrets.get("deployment")
@@ -38,7 +29,6 @@ def get_apps_script_config():
             return d.get("APPSCRIPT_URL"), d.get("APPSCRIPT_TOKEN")
     except Exception:
         pass
-
     # 2) top-level secrets
     try:
         url = st.secrets.get("APPSCRIPT_URL")
@@ -47,19 +37,16 @@ def get_apps_script_config():
             return url, token
     except Exception:
         pass
-
     # 3) environment
     env_url = os.getenv("APPSCRIPT_URL")
     env_token = os.getenv("APPSCRIPT_TOKEN")
     if env_url:
         return env_url, env_token
-
     # 4) fallback
     return APPSCRIPT_URL_FALLBACK, APPSCRIPT_TOKEN_FALLBACK
 
 APPSCRIPT_URL, APPSCRIPT_TOKEN = get_apps_script_config()
 
-# ---------- cached fetch ----------
 if hasattr(st, "cache_data"):
     cache_decorator = st.cache_data
 else:
@@ -67,9 +54,6 @@ else:
 
 @cache_decorator(ttl=60)
 def fetch_sheet_data(url: str, token: Optional[str], timeout: int = 8) -> dict:
-    """
-    Call the Apps Script web app. Returns dict: {"ok": bool, "data": list|None, "error": str|None}
-    """
     if not url:
         return {"ok": False, "error": "Apps Script URL not configured.", "data": None}
     params = {}
@@ -84,7 +68,6 @@ def fetch_sheet_data(url: str, token: Optional[str], timeout: int = 8) -> dict:
     except ValueError:
         return {"ok": False, "error": "Invalid JSON returned from apps script.", "data": None}
 
-    # handle response shapes
     if isinstance(j, dict) and "error" in j:
         return {"ok": False, "error": f"Server error: {j.get('error')}", "data": None}
     if isinstance(j, dict) and "data" in j and isinstance(j["data"], list):
@@ -93,15 +76,11 @@ def fetch_sheet_data(url: str, token: Optional[str], timeout: int = 8) -> dict:
         return {"ok": True, "error": None, "data": j}
     return {"ok": False, "error": "Unexpected response from apps script.", "data": None}
 
-# ---------- small utility helpers ----------
 def find_email_row(rows, email_norm):
-    """Find and return the first row dict that matches the normalized email."""
     if not rows:
         return None
     keys = list(rows[0].keys())
-    # candidate email columns
     email_cols = [k for k in keys if "email" in k.lower()]
-    # fallback: columns whose sample values contain '@'
     if not email_cols:
         sample = rows[0]
         for k in keys:
@@ -122,14 +101,14 @@ def pick_key(keys, candidates):
                 return k
     return None
 
-# ---------- initialize session state ----------
+# ---------- session_state defaults ----------
 if "email_verified" not in st.session_state:
     st.session_state["email_verified"] = False
 if "user_row" not in st.session_state:
     st.session_state["user_row"] = None
 if "requester_email" not in st.session_state:
     st.session_state["requester_email"] = None
-# keep request_type and dept_type keys so selection persists
+# widgets will own these keys; initialize if absent
 if "request_type" not in st.session_state:
     st.session_state["request_type"] = None
 if "dept_type" not in st.session_state:
@@ -140,15 +119,10 @@ st.set_page_config(page_title="IESM - Isha Engineering Service Management", layo
 st.title("IESM — Isha Engineering Service Management")
 st.write("Enter your official email; we will verify against the live IESM Users sheet and autofill your details.")
 
-# Optional debug info (won't print token)
-# st.caption(f"DEBUG: Using Apps Script URL: {APPSCRIPT_URL}")
-
 with st.form("email_form", clear_on_submit=False):
     email_input = st.text_input("Your official email ID", placeholder="you@yourdomain.org")
     verify_btn = st.form_submit_button("Verify email")
-    # Do not clear on submit so session_state persists
 
-# Handle verify action
 if verify_btn:
     email_norm = (email_input or "").strip().lower()
     if not email_norm:
@@ -167,13 +141,12 @@ if verify_btn:
                 st.session_state["requester_email"] = None
                 st.error("Email not found in IESM Users sheet. Please check spelling or contact admin.")
             else:
-                # persist verified info in session_state so UI doesn't reset
                 st.session_state["email_verified"] = True
                 st.session_state["user_row"] = matched
                 st.session_state["requester_email"] = email_norm
                 st.success("Email verified — details loaded.")
 
-# ---------- After verification: show autofill and request UI ----------
+# ---------- After verification ----------
 if st.session_state["email_verified"] and st.session_state["user_row"]:
     row = st.session_state["user_row"]
 
@@ -193,12 +166,12 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
         st.text_input("Department Name", value=dept_val, key="ui_dept", disabled=True)
     with col2:
         st.text_input("Dept Lead Email ID", value=lead_val, key="ui_dept_lead", disabled=True)
-        st.write("")  # spacer
+        st.write("")
 
     st.write("---")
     st.markdown("## Create Request")
 
-    # stable selectbox keys so Streamlit remembers selections across reruns
+    # Let the widget manage request_type
     request_type = st.selectbox(
         "Type of request",
         options=["-- Select --", "Maintenance", "New", "Project"],
@@ -206,27 +179,60 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
             ["-- Select --", "Maintenance", "New", "Project"].index(st.session_state["request_type"])
             if st.session_state["request_type"] in ["Maintenance", "New", "Project"] else 0
         ),
-        key="request_type"  # persisted key
+        key="request_type",
     )
 
-    # --- Departments involved (do not assign to st.session_state["dept_type"] here) ---
-if request_type == "Project":
-    # show read-only Departments involved = Multiple (do NOT write into the widget key)
-    st.markdown("**Departments involved:** Multiple (auto-selected for Project)")
-    st.text_input("Departments involved", value="Multiple", key="ui_deptinfo", disabled=True)
+    # read current selected request type from session_state (widget wrote it)
+    current_req = st.session_state.get("request_type")
 
-elif request_type in ("Maintenance", "New"):
-    # Let the widget own st.session_state["dept_type"] via key="dept_type"
-    dept_choice = st.selectbox(
-        "Departments involved",
-        options=["-- Select --", "Single", "Multiple"],
-        index=0 if not st.session_state.get("dept_type") else (
-            ["-- Select --", "Single", "Multiple"].index(st.session_state["dept_type"])
-            if st.session_state["dept_type"] in ["Single", "Multiple"] else 0
-        ),
-        key="dept_type"
-    )
-    # Do NOT assign st.session_state["dept_type"] = dept_choice here.
+    # Departments involved UI — do NOT assign into the same widget keys
+    if current_req == "Project":
+        st.markdown("**Departments involved:** Multiple (auto-selected for Project)")
+        st.text_input("Departments involved", value="Multiple", key="ui_deptinfo", disabled=True)
+
+    elif current_req in ("Maintenance", "New"):
+        # widget will set st.session_state["dept_type"]
+        dept_choice = st.selectbox(
+            "Departments involved",
+            options=["-- Select --", "Single", "Multiple"],
+            index=0 if not st.session_state.get("dept_type") else (
+                ["-- Select --", "Single", "Multiple"].index(st.session_state["dept_type"])
+                if st.session_state["dept_type"] in ["Single", "Multiple"] else 0
+            ),
+            key="dept_type"
+        )
+        # do NOT set st.session_state["dept_type"] manually here
+
+    st.write("---")
+    st.text_input("Master ticket title", key="master_title")
+    st.text_area("Master ticket description", key="master_description", height=120)
+
+    # compute department_type for preview without writing to widget keys
+    if st.session_state.get("request_type") == "Project":
+        computed_dept_type = "Multiple"
+    else:
+        computed_dept_type = st.session_state.get("dept_type")
+
+    preview = {
+        "requester_email": st.session_state.get("requester_email"),
+        "name": name_val,
+        "department": dept_val,
+        "department_lead_email": lead_val,
+        "request_type": st.session_state.get("request_type"),
+        "department_type": computed_dept_type,
+        "master_title": st.session_state.get("master_title"),
+        "master_description": st.session_state.get("master_description"),
+    }
+    st.markdown("#### Preview payload")
+    st.code(json.dumps(preview, indent=2))
+
+    if st.button("Create master ticket and children (preview only)"):
+        st.success("Payload ready — see preview above. (Integrate with JIRA API next.)")
+
+else:
+    st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
+    if not APPSCRIPT_URL:
+        st.warning("Apps Script URL not configured. Please set it in st.secrets or environment variables.")
     # The widget already sets st.session_state["dept_type"] for us.
 
     
