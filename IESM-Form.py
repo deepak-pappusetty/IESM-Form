@@ -5,7 +5,7 @@ by an Apps Script Web App and auto-fills Name / Department / Dept Lead.
 
 Set the Apps Script web app URL and the token in Streamlit secrets for production:
   [deployment]
-  APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycb.../exec"
+  APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbziYwpJylR0RqE6rpc1Yehoi3jXNwY4VkkguFznbSF3Of5UkELcN2QL6Yko931mIwz8/exec"
   APPSCRIPT_TOKEN = "DeepakPappusetty"
 
 Or for quick local test, edit APPSCRIPT_URL_FALLBACK and APPSCRIPT_TOKEN_FALLBACK below.
