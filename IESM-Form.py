@@ -209,53 +209,24 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
         key="request_type"  # persisted key
     )
 
-    # store dept_type automatically if project
-    if request_type == "Project":
-        st.markdown("**Departments involved:** Multiple (auto-selected for Project)")
-        st.session_state["dept_type"] = "Multiple"
-    elif request_type in ("Maintenance", "New"):
-        dept_choice = st.selectbox(
-            "Departments involved",
-            options=["-- Select --", "Single", "Multiple"],
-            index=0 if not st.session_state.get("dept_type") else (
-                ["-- Select --", "Single", "Multiple"].index(st.session_state["dept_type"])
-                if st.session_state["dept_type"] in ["Single", "Multiple"] else 0
-            ),
-            key="dept_type"
-        )
-        # if user selects placeholder, keep it None
-        if dept_choice == "-- Select --":
-            st.session_state["dept_type"] = None
-        else:
-            st.session_state["dept_type"] = dept_choice
+    # --- Departments involved (do not assign to st.session_state["dept_type"] here) ---
+if request_type == "Project":
+    # show read-only Departments involved = Multiple (do NOT write into the widget key)
+    st.markdown("**Departments involved:** Multiple (auto-selected for Project)")
+    st.text_input("Departments involved", value="Multiple", key="ui_deptinfo", disabled=True)
 
-    # Optional extra fields (master ticket title/description) - simple version
-    st.write("---")
-    st.text_input("Master ticket title", key="master_title")
-    st.text_area("Master ticket description", key="master_description", height=120)
+elif request_type in ("Maintenance", "New"):
+    # Let the widget own st.session_state["dept_type"] via key="dept_type"
+    dept_choice = st.selectbox(
+        "Departments involved",
+        options=["-- Select --", "Single", "Multiple"],
+        index=0 if not st.session_state.get("dept_type") else (
+            ["-- Select --", "Single", "Multiple"].index(st.session_state["dept_type"])
+            if st.session_state["dept_type"] in ["Single", "Multiple"] else 0
+        ),
+        key="dept_type"
+    )
+    # Do NOT assign st.session_state["dept_type"] = dept_choice here.
+    # The widget already sets st.session_state["dept_type"] for us.
 
-    st.write("---")
-    # Preview payload
-    preview = {
-        "requester_email": st.session_state.get("requester_email"),
-        "name": name_val,
-        "department": dept_val,
-        "department_lead_email": lead_val,
-        "request_type": st.session_state.get("request_type"),
-        "department_type": st.session_state.get("dept_type"),
-        "master_title": st.session_state.get("master_title"),
-        "master_description": st.session_state.get("master_description"),
-    }
-    st.markdown("#### Preview payload")
-    st.code(json.dumps(preview, indent=2))
-
-    # Create request button (placeholder - you can wire this to JIRA)
-    if st.button("Create master ticket and children (preview only)"):
-        st.success("Payload ready — see preview above. (Integrate with JIRA API next.)")
-
-else:
-    # show helpful hint
-    st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
-    # Optionally show debug hint about config
-    if not APPSCRIPT_URL:
-        st.warning("Apps Script URL not configured. Please set it in st.secrets or environment variables.")
+    
