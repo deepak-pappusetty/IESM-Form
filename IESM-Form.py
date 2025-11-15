@@ -17,7 +17,7 @@ from typing import Optional
 
 # ---- CONFIG - replace with your webapp URL if you want to hardcode for quick test ----
 APPSCRIPT_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbziYwpJylR0RqE6rpc1Yehoi3jXNwY4VkkguFznbSF3Of5UkELcN2QL6Yko931mIwz8/exec"
-APPSCRIPT_TOKEN_FALLBACK = DeepakPappusetty  # <--- for quick testing you can paste the SECRET_TOKEN here, but DON'T commit to git
+APPSCRIPT_TOKEN_FALLBACK = "DeepakPappusetty"  # <--- for quick testing you can paste the SECRET_TOKEN here, but DON'T commit to git
 
 # ---- Use secrets when available (recommended) ----
 # In Streamlit Cloud: add secrets in Settings -> Secrets
