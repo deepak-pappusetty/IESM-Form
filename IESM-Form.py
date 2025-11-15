@@ -210,14 +210,14 @@ if st.session_state.get("request_type") == "Project":
 else:
     computed_dept_type = st.session_state.get("dept_type")
 
-preview = {
-    "requester_email": st.session_state.get("requester_email"),
-    "name": name_val,
-    "department": dept_val,
-    "department_lead_email": lead_val,
-    "request_type": st.session_state.get("request_type"),
-    "department_type": computed_dept_type,
-}
+    preview = {
+        "requester_email": st.session_state.get("requester_email"),
+        "name": name_val,
+        "department": dept_val,
+        "department_lead_email": lead_val,
+        "request_type": st.session_state.get("request_type"),
+        "department_type": computed_dept_type,
+    }
     st.markdown("#### Preview payload")
     st.code(json.dumps(preview, indent=2))
 
