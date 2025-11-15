@@ -225,7 +225,7 @@ else:
         st.success("Payload ready — see preview above. (Integrate with JIRA API next.)")
 
     else:
-    st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
+      st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
     if not APPSCRIPT_URL:
         st.warning("Apps Script URL not configured. Please set it in st.secrets or environment variables.")
     # The widget already sets st.session_state["dept_type"] for us.
