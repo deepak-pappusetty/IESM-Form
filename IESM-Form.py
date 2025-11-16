@@ -14,6 +14,7 @@ Notes:
 import streamlit as st
 import requests
 import json
+import datetime
 from typing import Optional
 
 # ---------- FALLBACK (safe) ----------
@@ -235,10 +236,12 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
     name_key = pick_key(keys, ["name", "full name", "fullname"])
     dept_key = pick_key(keys, ["department", "dept", "team"])
     lead_key = pick_key(keys, ["lead", "department lead", "dept lead", "lead email", "lead_email"])
+    location_key = pick_key(keys, ["location", "location name", "campus", "site"]) or "Location"
 
     name_val = row.get(name_key, "") if name_key else ""
     dept_val = row.get(dept_key, "") if dept_key else ""
     lead_val = row.get(lead_key, "") if lead_key else ""
+    user_location = str(row.get(location_key, "")).strip() if row.get(location_key, None) is not None else ""
 
     st.markdown("## Your details (autofilled)")
     col1, col2 = st.columns([2, 2])
@@ -247,12 +250,12 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
         st.text_input("Department Name", value=dept_val, key="ui_dept", disabled=True)
     with col2:
         st.text_input("Dept Lead Email ID", value=lead_val, key="ui_dept_lead", disabled=True)
-        st.write("")
+        st.text_input("Location (from Users sheet)", value=user_location, key="ui_location_display", disabled=True)
 
     st.write("---")
     st.markdown("## Create Request")
 
-    # Let the widget manage request_type
+    # Request type selectbox (keeps behaviour)
     request_type = st.selectbox(
         "Type of request",
         options=["-- Select --", "Maintenance", "New", "Project"],
@@ -265,11 +268,10 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
 
     current_req = st.session_state.get("request_type")
 
-    # Departments involved UI
+    # Departments involved UI (same behaviour)
     if current_req == "Project":
         st.markdown("**Departments involved:** Multiple (auto-selected for Project)")
         st.text_input("Departments involved", value="Multiple", key="ui_deptinfo", disabled=True)
-
     elif current_req in ("Maintenance", "New"):
         dept_choice = st.selectbox(
             "Departments involved",
@@ -280,19 +282,35 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
             ),
             key="dept_type"
         )
-        # widget manages st.session_state["dept_type"]
 
-    # ---------- NEW: When Single & Maintenance/New show dynamic rows ----------
-    # Ensure config loaded
+    # Load Config if not loaded (keeps your existing lazy loader)
     config_cols = st.session_state.get("config_columns") or {}
     config_err = st.session_state.get("config_error")
 
+    # --- NEW: Location selection BEFORE number of requests ---
     if current_req in ("Maintenance", "New") and st.session_state.get("dept_type") == "Single":
-        # show config load errors if any
         if config_err:
             st.error(f"Could not load Config sheet: {config_err}")
         else:
-            # Get service dept options from column "Maintenance Service Type" (fallback to keys)
+            # Location selection - populated from user's row (if present)
+            st.markdown("### Location")
+            loc_options = []
+            if user_location:
+                loc_options.append(user_location)
+            loc_options.append("Other")
+            selected_location = st.selectbox("Choose location", options=loc_options, key="selected_location")
+
+            manual_location = ""
+            if selected_location == "Other":
+                manual_location = st.text_input("Enter location", key="manual_location")
+
+            # Number of requests comes after location
+            num = st.number_input("Number of requests (max 10)", min_value=1, max_value=10, value=1, step=1, key="num_requests")
+
+            st.write("---")
+            st.markdown("### Request details")
+
+            # Prepare the service department options
             service_dept_options = config_cols.get("Maintenance Service Type")
             if not service_dept_options:
                 # fallback: try to find a likely column header
@@ -301,65 +319,117 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
                         service_dept_options = config_cols.get(k)
                         break
             if not service_dept_options:
-                # ultimate fallback: use config column headers as options
-                service_dept_options = list(config_cols.keys())
+                service_dept_options = list(config_cols.keys()) or ["General"]
 
-            # number of requests
-            num = st.number_input("Number of requests (max 10)", min_value=1, max_value=10, value=1, step=1, key="num_requests")
-
-            st.markdown("### Request details")
-            # prepare containers for inputs
-            rows_data = []
+            # Collect requests in a simple list (one field per row)
+            requests_list = []
             for i in range(int(num)):
                 st.markdown(f"**Request {i+1}**")
-                c1, c2, c3, c4, c5 = st.columns([2, 2, 3, 2, 2])  # c5 used only for New's extra field
-                with c1:
-                    svc = st.selectbox(f"Service Dept (row {i+1})", options=["-- Select --"] + service_dept_options, key=f"svc_{i}")
-                # determine subcategory options by looking for header matching svc
+                # One field per row/line - not tabular layout
+                svc = st.selectbox(f"Service Dept (request {i+1})", options=["-- Select --"] + service_dept_options, key=f"svc_{i}")
+                # Determine subcategory options by inspecting config columns for header matching svc
                 sub_opts = []
                 if svc and svc != "-- Select --":
-                    # find header exactly matching svc
                     for h, vals in config_cols.items():
                         if str(h).strip().lower() == svc.strip().lower():
                             sub_opts = vals
                             break
-                with c2:
-                    sub = st.selectbox(f"Sub Category (row {i+1})", options=["-- Select --"] + (sub_opts or []), key=f"sub_{i}")
-                with c3:
-                    desc = st.text_input(f"Description (row {i+1})", key=f"desc_{i}")
+                sub = st.selectbox(f"Sub Category (request {i+1})", options=["-- Select --"] + (sub_opts or []), key=f"sub_{i}")
+                desc = st.text_area(f"Description (request {i+1})", key=f"desc_{i}", height=80)
+
                 if current_req == "Maintenance":
-                    with c4:
-                        occ_opts = config_cols.get("Issue Occurrence", [])
-                        occ = st.selectbox(f"Issue Occurrence (row {i+1})", options=["-- Select --"] + (occ_opts or []), key=f"occ_{i}")
-                    rows_data.append({
-                        "service_dept": svc,
-                        "sub_category": sub,
-                        "description": desc,
-                        "occurrence": occ
-                    })
-                else:  # New
-                    with c4:
-                        reason = st.text_input(f"Reason (row {i+1})", key=f"reason_{i}")
-                    with c5:
-                        chall = st.text_input(f"Existing Challenges (row {i+1})", key=f"chall_{i}")
-                    rows_data.append({
-                        "service_dept": svc,
-                        "sub_category": sub,
-                        "description": desc,
-                        "reason": reason,
-                        "existing_challenges": chall
-                    })
+                    occ_opts = config_cols.get("Issue Occurrence", [])
+                    occ = st.selectbox(f"Issue Occurrence (request {i+1})", options=["-- Select --"] + (occ_opts or []), key=f"occ_{i}")
+                    extra = {"occurrence": occ}
+                else:  # New request
+                    reason = st.text_input(f"Reason (request {i+1})", key=f"reason_{i}")
+                    chall = st.text_input(f"Existing Challenges (request {i+1})", key=f"chall_{i}")
+                    extra = {"reason": reason, "existing_challenges": chall}
+
+                # Photo upload placeholder (filler) - single file per request for now
+                photo = st.file_uploader(f"Upload photo (request {i+1}) — placeholder", type=["png", "jpg", "jpeg"], key=f"photo_{i}")
+
+                requests_list.append({
+                    "service_dept": svc,
+                    "sub_category": sub,
+                    "description": desc,
+                    **extra,
+                    "photo_provided": bool(photo)
+                })
+
                 st.write("---")
 
-            # Show a compact preview table
-            st.markdown("#### Requests preview")
-            st.json(rows_data)
+            # ---------- After request details: Priority & Expected date ----------
+            st.markdown("### Priority & Expected Completion")
 
-            # Add a single action button to proceed to create tickets (placeholder)
-            if st.button("Proceed with these requests (preview only)"):
-                st.success("Requests captured (preview). Next: wire to JIRA / backend to create tickets.")
+            priority = st.selectbox("Priority", options=["Normal", "Urgent"], index=0, key="priority_select")
+
+            urgent_reason = ""
+            if priority == "Urgent":
+                urgent_reason = st.text_area("Please state the reason for urgency", key="urgent_reason", height=80)
+                if not urgent_reason:
+                    st.warning("You selected Urgent — please provide the reason above.")
+
+            # compute default & min expected dates
+            today = datetime.date.today()
+            if priority == "Urgent":
+                default_expected = today + datetime.timedelta(days=3)
+                min_expected = default_expected
+            else:  # Normal
+                default_expected = today + datetime.timedelta(days=10)
+                min_expected = default_expected
+
+            expected_date = st.date_input(
+                "Expected date to finish",
+                value=default_expected,
+                min_value=min_expected,
+                key="expected_finish_date"
+            )
+
+            # ---------- Budget code available ----------
+            st.markdown("### Budget")
+            budget_available = st.selectbox("Is Budget Code Available?", options=["No", "Yes"], index=0, key="budget_available")
+
+            budget_info = {}
+            if budget_available == "Yes":
+                book_of_accounts = st.text_input("Book of Accounts", key="book_of_accounts")
+                budget_code = st.text_input("Budget Code", key="budget_code")
+                utilization_date = st.date_input("Utilization Date", key="utilization_date")
+                entity_name = st.text_input("Entity Name", key="entity_name")
+                budget_info = {
+                    "book_of_accounts": book_of_accounts,
+                    "budget_code": budget_code,
+                    "utilization_date": str(utilization_date),
+                    "entity_name": entity_name
+                }
+
+            # ---------- Final submit action (placeholder) ----------
+            if st.button("Create tickets (placeholder - no preview)"):
+                # build payload to send to backend later — but do NOT show preview per your instruction
+                payload = {
+                    "requester_email": st.session_state.get("requester_email"),
+                    "name": name_val,
+                    "department": dept_val,
+                    "department_lead_email": lead_val,
+                    "request_type": current_req,
+                    "department_type": st.session_state.get("dept_type"),
+                    "location": (manual_location if selected_location == "Other" else selected_location),
+                    "requests": requests_list,
+                    "priority": priority,
+                    "urgent_reason": urgent_reason if priority == "Urgent" else "",
+                    "expected_finish_date": str(expected_date),
+                    "budget_available": (budget_available == "Yes"),
+                    "budget_info": budget_info
+                }
+
+                # placeholder action: in the future, send payload to JIRA / Apps Script / backend
+                # For now: acknowledge and keep quiet about the payload contents (per "remove preview" requirement)
+                st.success("Requests submitted (placeholder). Next step: integrate with JIRA / backend to create tickets.")
+                # you might want to log payload to server side logs in a real deployment
+                # NOTE: do not display payload here to honor "Remove Request Preview" instruction.
+
     else:
-        # show preview for non-single/multi or no selection
+        # Keep original minimal preview for Project / Multiple / not-selected cases
         computed_dept_type = "Multiple" if current_req == "Project" else st.session_state.get("dept_type")
         preview = {
             "requester_email": st.session_state.get("requester_email"),
@@ -369,11 +439,10 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
             "request_type": st.session_state.get("request_type"),
             "department_type": computed_dept_type,
         }
-        st.markdown("#### Preview payload")
+        st.markdown("#### Preview payload (master ticket only)")
         st.code(json.dumps(preview, indent=2))
-
-        if st.button("Create master ticket and children (preview only)"):
-            st.success("Payload ready — see preview above. (Integrate with JIRA API next.)")
+        if st.button("Create master ticket and children (placeholder)"):
+            st.success("Master ticket creation placeholder (no request preview).")
 
 else:
     st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
