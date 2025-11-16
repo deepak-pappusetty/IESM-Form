@@ -292,7 +292,7 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
         if config_err:
             st.error(f"Could not load Config sheet: {config_err}")
         else:
-            # Location selection - populated from user's row (if present)
+            # Location selection - populate options from the entire Users sheet (unique)
             st.markdown("### Location")
 
             # Fetch full Users sheet to build location list
@@ -314,13 +314,12 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
             # fallback default if nothing found
             if not loc_options:
                 loc_options = ["Main Campus", "Other"]
-            
+
             # add 'Other' option at the end (if not already present)
             if "Other" not in loc_options:
                 loc_options.append("Other")
-            
+
             selected_location = st.selectbox("Choose location", options=loc_options, key="selected_location")
-            
             manual_location = ""
             if selected_location == "Other":
                 manual_location = st.text_input("Enter location", key="manual_location")
@@ -380,6 +379,13 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
 
                 st.write("---")
 
+            # ---------- Location Availability (Single) ----------
+            st.markdown("### Location Availability")
+            loc_avail = st.selectbox("Availability of location/space for the work", options=["Any Day", "Restricted"], key="loc_avail_single")
+            loc_avail_details = ""
+            if loc_avail == "Restricted":
+                loc_avail_details = st.text_area("Please provide additional information about restrictions (days/times/constraints)", key="loc_avail_details_single", height=80)
+
             # ---------- After request details: Priority & Expected date ----------
             st.markdown("### Priority & Expected Completion")
 
@@ -436,6 +442,7 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
                     "department_type": st.session_state.get("dept_type"),
                     "location": (manual_location if selected_location == "Other" else selected_location),
                     "requests": requests_list,
+                    "location_availability": {"type": loc_avail, "details": loc_avail_details},
                     "priority": priority,
                     "urgent_reason": urgent_reason if priority == "Urgent" else "",
                     "expected_finish_date": str(expected_date),
@@ -464,6 +471,132 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
         #st.code(json.dumps(preview, indent=2))
         if st.button("Create master ticket and children (placeholder)"):
             st.success("Master ticket creation placeholder (no request preview).")
+
+# ---------- Multiple departments flow ----------
+elif current_req in ("Maintenance", "New") and st.session_state.get("dept_type") == "Multiple":
+    st.markdown("### Select departments involved (Multiple)")
+
+    # Fetch the entire Users sheet to get 'New Service Type' values
+    user_sheet_res = fetch_sheet_data(APPSCRIPT_URL, APPSCRIPT_TOKEN, sheet="User")
+    multi_dept_options = []
+    if user_sheet_res["ok"] and isinstance(user_sheet_res["data"], list) and user_sheet_res["data"]:
+        all_keys = list(user_sheet_res["data"][0].keys())
+        ns_header = pick_key(all_keys, ["new service type", "new_service_type", "new service", "service type"]) or None
+        if ns_header:
+            seen = []
+            for ur in user_sheet_res["data"]:
+                v = str(ur.get(ns_header, "")).strip()
+                if v and v not in seen:
+                    seen.append(v)
+            multi_dept_options = seen
+
+    # fallback
+    if not multi_dept_options:
+        fallback = config_cols.get("Maintenance Service Type") or list(config_cols.keys()) or ["Fabrication", "Carpentry", "Plumbing"]
+        multi_dept_options = fallback
+
+    # Render checkboxes (one per department) and collect selections
+    selected_depts = []
+    for i, dname in enumerate(multi_dept_options):
+        chk = st.checkbox(dname, key=f"multi_dept_chk_{i}")
+        if chk:
+            selected_depts.append(dname)
+
+    if not selected_depts:
+        st.info("Please select at least one department involved to proceed.")
+
+    # Single request only for multiple-department ticket
+    st.markdown("### Request (one request per ticket)")
+    multi_description = st.text_area("Description (single request covering all selected departments)", key="multi_desc", height=140)
+
+    # Issue Occurrence dropdown (single)
+    occ_opts = config_cols.get("Issue Occurrence", [])
+    multi_occurrence = st.selectbox("Issue Occurrence", options=["-- Select --"] + (occ_opts or []), key="multi_occurrence")
+
+    # Photo upload placeholder for multiple-department ticket (accept multiple files)
+    st.markdown("Upload photos (optional) — attach photos related to this single request")
+    multi_photos = st.file_uploader("Upload photos (multiple allowed)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="multi_photos")
+
+    # Location Availability (Multiple)
+    st.markdown("### Location Availability")
+    loc_avail_multi = st.selectbox("Availability of location/space for the work", options=["Any Day", "Restricted"], key="loc_avail_multi")
+    loc_avail_details_multi = ""
+    if loc_avail_multi == "Restricted":
+        loc_avail_details_multi = st.text_area("Please provide additional information about restrictions (days/times/constraints)", key="loc_avail_details_multi", height=80)
+
+    # Priority & Expected Completion (single)
+    st.markdown("### Priority & Expected Completion")
+    priority_multi = st.selectbox("Priority", options=["Normal", "Urgent"], index=0, key="priority_multi_select")
+
+    urgent_reason_multi = ""
+    if priority_multi == "Urgent":
+        urgent_reason_multi = st.text_area("Please state the reason for urgency", key="urgent_reason_multi", height=80)
+        if not urgent_reason_multi:
+            st.warning("You selected Urgent — please provide the reason above.")
+
+    today = datetime.date.today()
+    if priority_multi == "Urgent":
+        default_expected_multi = today + datetime.timedelta(days=3)
+        min_expected_multi = default_expected_multi
+    else:
+        default_expected_multi = today + datetime.timedelta(days=10)
+        min_expected_multi = default_expected_multi
+
+    expected_date_multi = st.date_input(
+        "Expected date to finish",
+        value=default_expected_multi,
+        min_value=min_expected_multi,
+        key="expected_finish_date_multi"
+    )
+
+    # Budget for multiple flow
+    st.markdown("### Budget")
+    budget_available_multi = st.selectbox("Is Budget Code Available?", options=["No", "Yes"], index=0, key="budget_available_multi")
+    budget_info_multi = {}
+    if budget_available_multi == "Yes":
+        book_of_accounts = st.text_input("Book of Accounts", key="book_of_accounts_multi")
+        budget_code = st.text_input("Budget Code", key="budget_code_multi")
+        utilization_date = st.date_input("Utilization Date", key="utilization_date_multi")
+        entity_name = st.text_input("Entity Name", key="entity_name_multi")
+        budget_info_multi = {
+            "book_of_accounts": book_of_accounts,
+            "budget_code": budget_code,
+            "utilization_date": str(utilization_date),
+            "entity_name": entity_name
+        }
+
+    # Submit guard: ensure at least one department selected and description provided
+    can_submit = bool(selected_depts) and bool(str(multi_description).strip())
+    if not selected_depts:
+        st.warning("Select one or more departments before submitting.")
+    if not str(multi_description).strip():
+        st.warning("Please provide a description for the request.")
+
+    if st.button("Create ticket (placeholder - multiple)"):
+        if not can_submit:
+            st.error("Cannot submit. Make sure you've selected department(s) and provided a description.")
+        else:
+            # Build payload (server-side only, not printed)
+            payload = {
+                "requester_email": st.session_state.get("requester_email"),
+                "name": name_val,
+                "department": dept_val,
+                "department_lead_email": lead_val,
+                "request_type": current_req,
+                "department_type": st.session_state.get("dept_type"),
+                "selected_departments": selected_depts,
+                "description": multi_description,
+                "issue_occurrence": multi_occurrence,
+                "location_availability": {"type": loc_avail_multi, "details": loc_avail_details_multi},
+                "priority": priority_multi,
+                "urgent_reason": urgent_reason_multi if priority_multi == "Urgent" else "",
+                "expected_finish_date": str(expected_date_multi),
+                "budget_available": (budget_available_multi == "Yes"),
+                "budget_info": budget_info_multi,
+                # note: files are not serialized here; we only note presence
+                "photos_provided": bool(multi_photos),
+            }
+            st.success("Ticket submitted (placeholder). Next step: integrate with JIRA / backend to create a real ticket.")
 
 else:
     st.info("Please verify your email first so we can autofill your details from the IESM Users sheet.")
