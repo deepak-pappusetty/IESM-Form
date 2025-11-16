@@ -460,8 +460,8 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
             "request_type": st.session_state.get("request_type"),
             "department_type": computed_dept_type,
         }
-        st.markdown("#### Preview payload (master ticket only)")
-        st.code(json.dumps(preview, indent=2))
+        #st.markdown("#### Preview payload (master ticket only)")
+        #st.code(json.dumps(preview, indent=2))
         if st.button("Create master ticket and children (placeholder)"):
             st.success("Master ticket creation placeholder (no request preview).")
 
