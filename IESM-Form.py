@@ -294,12 +294,33 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
         else:
             # Location selection - populated from user's row (if present)
             st.markdown("### Location")
-            loc_options = []
-            if user_location:
-                loc_options.append(user_location)
-            loc_options.append("Other")
-            selected_location = st.selectbox("Choose location", options=loc_options, key="selected_location")
 
+            # Fetch full Users sheet to build location list
+            user_sheet_res = fetch_sheet_data(APPSCRIPT_URL, APPSCRIPT_TOKEN, sheet="User")
+            loc_options = []
+            if user_sheet_res["ok"] and isinstance(user_sheet_res["data"], list):
+                user_rows_all = user_sheet_res["data"]
+                # determine which header is the Location column
+                if user_rows_all:
+                    all_keys = list(user_rows_all[0].keys())
+                    loc_header = pick_key(all_keys, ["location", "site", "campus", "location name"]) or None
+                    if loc_header:
+                        seen = set()
+                        for ur in user_rows_all:
+                            val = str(ur.get(loc_header, "")).strip()
+                            if val:
+                                seen.add(val)
+                        loc_options = sorted(list(seen))
+            # fallback default if nothing found
+            if not loc_options:
+                loc_options = ["Main Campus", "Other"]
+            
+            # add 'Other' option at the end (if not already present)
+            if "Other" not in loc_options:
+                loc_options.append("Other")
+            
+            selected_location = st.selectbox("Choose location", options=loc_options, key="selected_location")
+            
             manual_location = ""
             if selected_location == "Other":
                 manual_location = st.text_input("Enter location", key="manual_location")
