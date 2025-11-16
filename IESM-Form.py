@@ -250,7 +250,7 @@ if st.session_state["email_verified"] and st.session_state["user_row"]:
         st.text_input("Department Name", value=dept_val, key="ui_dept", disabled=True)
     with col2:
         st.text_input("Dept Lead Email ID", value=lead_val, key="ui_dept_lead", disabled=True)
-        st.text_input("Location (from Users sheet)", value=user_location, key="ui_location_display", disabled=True)
+        #st.text_input("Location (from Users sheet)", value=user_location, key="ui_location_display", disabled=True)
 
     st.write("---")
     st.markdown("## Create Request")
